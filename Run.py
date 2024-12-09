@@ -132,6 +132,12 @@ class SimpleComputer:
                 # Print 8 zeros if the memory cell is empty/uninitialized
                 print(f"Memory[{hex(address)}] = 00000000")
 
+    def plugins_BTB_BPB():
+        """
+        BPB: 1k, 2bit
+        BTB: 256
+        """
+
     def run_assembly(self, instructions, start_address):
         """
         Translate assembly instructions, convert to binary, and write to memory starting at start_address.
@@ -167,6 +173,7 @@ class SimpleComputer:
             ]
 
             # Execute based on opcode
+            print(f"Now PC: {self.registers[30]}, is going to be executed.")
             if opcode == 0b00001:  # LOAD
                 src_address = operands[1]  # Memory address from the first operand
                 self.load(28, src_address)  # Load data into data register (r28)
@@ -181,6 +188,14 @@ class SimpleComputer:
                 src_reg_idx1 = operands[1] & 0x1F  # Get register index from the second operand
                 src_reg_idx2 = operands[2] & 0x1F  # Get register index from the third operand
                 self.add(dest_reg_idx, src_reg_idx1, src_reg_idx2)  # Add registers
+            elif opcode == 0b00100:  # JGE
+                reg1_idx = operands[0] & 0x1F
+                reg2_idx = operands[1] & 0x1F
+                target_address = operands[2]
+                if self.registers[reg1_idx] >= self.registers[reg2_idx]:
+                    self.registers[30] = target_address
+                    #print(f"hack: JGE pc: {self.registers[30]}")
+                    continue  # Skip PC increment
 
             # Increment the Program Counter (PC)
             self.registers[30] += 4  # Move to the next instruction
@@ -203,20 +218,38 @@ def demo_test_run_assembly_command():
 
     # Preload two 32-bit data values into memory
     data_to_load = [
-        "00000000000000000000000000001111",  # Example data at memory address 0xa7 (15 in decimal)
-        "00000000000000000000000000000101"   # Example data at memory address 0x1 (5 in decimal)
+        "00000000000000000000000000001111",   # Example data at memory address 0xa7 (15 in decimal)
+        "00000000000000000000000000000001",   # Example data at memory address 0x1 (1 in decimal)
+        "00000000000000000000000000010110"    # Example data at memory address 0x11 (18 in decimal)
     ]
 
     # Initialize memory at addresses 0xa7 and 0x1
     computer.initialize_memory(0xA7, [data_to_load[0]])  # Memory address 0xa7
     computer.initialize_memory(0x1, [data_to_load[1]])   # Memory address 0x1
+    computer.initialize_memory(0x11, [data_to_load[2]])  # Memory address 0x11
 
     # Assembly program that will load, add, and store the result
+    '''
     instructions = [
         "LOAD r1, #0xa7",   # Load memory at hex address 0xa7 into register 1
         "LOAD r2, #1",      # Load memory at decimal address 1 into register 2
         "ADD r3, r1, r2",   # Add values in r1 and r2, store result in r3
         "STORE r3, #0xb0"   # Store value from r3 into memory address 0xb0
+    ]
+    '''
+
+    # Assembly program that will execute a loop, every round do 3 "Add-one" instructions. One “Add-one” instruction will be definitely skipped by JGE.
+    instructions = [
+        "LOAD r1, #0xa7",       # Load memory at hex address 0xa7 into register 1
+        "LOAD r2, #1",          # Load memory at decimal address 1 into register 2
+        "ADD r3, r1, r2",       # Add values in r1 and r2, store result in r3
+        "JGE r2, r2, #0x14",    # Skip one ADD instruction, r2 is equal to r2, so this is a definite skip
+        "ADD r3, r3, r2",       # Add 1
+        "ADD r3, r3, r2",       # Add 1
+        "ADD r3, r3, r2",       # Add 1
+        "STORE r3, #0xa7",      # Store value from r3 into memory address 0xb0
+        "LOAD r4, #0x11",       # Load the loop end flag
+        "JGE r4, r3, #0x0"      # If r3 is still less than loop end flag, go back to take 3 "Add-One" instruction.
     ]
 
     # Set start address for program in memory
@@ -232,7 +265,7 @@ def demo_test_run_assembly_command():
 
     # Print memory content where the result is expected (0xb0)
     print("======Result======")
-    computer.print_memory("0x000000B0", "0x4")
+    computer.print_memory("0x000000A7", "0x4")
     print("===End of Result===")
 
     # Print final register values for verification

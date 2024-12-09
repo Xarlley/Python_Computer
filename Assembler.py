@@ -4,7 +4,8 @@ class Assembler:
         self.opcode_map = {
             "LOAD": 0b00001,
             "STORE": 0b00010,
-            "ADD": 0b00011
+            "ADD": 0b00011,
+            "JGE": 0b00100  # Add JGE opcode
         }
 
     def translate_assembly(self, instructions):
