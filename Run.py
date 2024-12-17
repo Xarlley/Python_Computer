@@ -12,7 +12,16 @@ class SimpleComputer:
         self.instruction_pointer = 0
 
         # Create an instance of the Assembler
-        self.assembler = Assembler()  
+        self.assembler = Assembler()
+
+        # BTB and BPB entries
+        self.branch_plugin = {
+            "BTB": {},  # Branch Target Buffer: {instruction_address: target_address}
+            "BPB": {}   # Branch Prediction Buffer: {instruction_address: 2-bit history (00 to 11)}
+        }
+
+        # JGE lock
+        self.jge_lock = False
 
     def _check_address(self, address):
         """Check if the address is a valid 32-bit hex address."""
@@ -132,11 +141,58 @@ class SimpleComputer:
                 # Print 8 zeros if the memory cell is empty/uninitialized
                 print(f"Memory[{hex(address)}] = 00000000")
 
-    def plugins_BTB_BPB():
+    def plugins_BTB_BPB(self, instruction_address):
         """
-        BPB: 1k, 2bit
-        BTB: 256
+        Simulate the functionality of BTB and BPB.
+        Args:
+            instruction_address: The current instruction address (without base).
+        Returns:
+            (should_jump: bool, target_address: int or None): 
+            A tuple indicating whether to jump and the predicted target address.
         """
+        # Default: no jump
+        should_jump = False
+        target_address = None
+
+        # Check BTB and BPB for the current instruction address
+        btb_entry = self.branch_plugin["BTB"].get(instruction_address)
+        bpb_entry = self.branch_plugin["BPB"].get(instruction_address, 0b00)  # Default to "strongly not taken"
+
+        # BPB: Predict based on the 2-bit history
+        if bpb_entry in {0b10, 0b11}:  # Weakly or strongly taken
+            should_jump = True
+            target_address = btb_entry  # Use BTB if available, else None
+
+        return should_jump, target_address
+
+    def update_branch_plugin(self, instruction_address, actual_taken, target_address):
+        """
+        Update BTB and BPB entries based on the actual branch result.
+        Args:
+            instruction_address: The instruction address (without base).
+            actual_taken: Whether the branch was actually taken.
+            target_address: The actual target address if taken, else None.
+        """
+        # Update BPB: Adjust the 2-bit history
+        current_bpb = self.branch_plugin["BPB"].get(instruction_address, 0b00)
+
+        if actual_taken:
+            # Increment history towards "taken" (10 or 11)
+            if current_bpb < 0b11:
+                current_bpb += 1
+        else:
+            # Decrement history towards "not taken" (00 or 01)
+            if current_bpb > 0b00:
+                current_bpb -= 1
+
+        self.branch_plugin["BPB"][instruction_address] = current_bpb
+
+        # Update BTB: If branch was taken, record the target address
+        if actual_taken and target_address is not None:
+            self.branch_plugin["BTB"][instruction_address] = target_address
+        elif not actual_taken and instruction_address in self.branch_plugin["BTB"]:
+            # Remove BTB entry if branch is not taken
+            del self.branch_plugin["BTB"][instruction_address]
 
     def run_assembly(self, instructions, start_address):
         """
@@ -159,6 +215,8 @@ class SimpleComputer:
         # Execute the program
         while self.registers[30] < len(binary_strings) * 4:  # Check PC within instruction range
             # Fetch the instruction from memory
+            while(self.jge_lock == True):  # What for getting JGE actual_taken
+                tmp = 1
             pc_address = self.registers[31] + self.registers[30]  # Base + PC
             self.load(29, pc_address)  # Load instruction into r29
 
@@ -189,6 +247,36 @@ class SimpleComputer:
                 src_reg_idx2 = operands[2] & 0x1F  # Get register index from the third operand
                 self.add(dest_reg_idx, src_reg_idx1, src_reg_idx2)  # Add registers
             elif opcode == 0b00100:  # JGE
+                # Simulate BTB and BPB prediction
+                instruction_address = self.registers[30]  # PC without base
+                predicted_jump, predicted_target = self.plugins_BTB_BPB(instruction_address)
+
+                # Apply prediction
+                if predicted_jump and predicted_target is not None:
+                    self.registers[30] = predicted_target
+                    #continue  # Skip actual execution if predicted jump is taken
+                
+                self.jge_lock = True
+                reg1_idx = operands[0] & 0x1F
+                reg2_idx = operands[1] & 0x1F
+                target_address = operands[2]
+
+                # Execute the actual branch condition
+                actual_taken = self.registers[reg1_idx] >= self.registers[reg2_idx]
+
+                if actual_taken:
+                    self.registers[30] = target_address
+                    # Update branch plugin with actual results
+                    self.update_branch_plugin(instruction_address, actual_taken, target_address)
+                    self.jge_lock = False
+                    continue  # Skip PC increment
+
+                # Update branch plugin with actual results (not taken)
+                self.update_branch_plugin(instruction_address, actual_taken, None)
+                self.jge_lock = False
+            # Simple JGE
+            """
+            elif opcode == 0b00100:  # JGE
                 reg1_idx = operands[0] & 0x1F
                 reg2_idx = operands[1] & 0x1F
                 target_address = operands[2]
@@ -196,6 +284,7 @@ class SimpleComputer:
                     self.registers[30] = target_address
                     #print(f"hack: JGE pc: {self.registers[30]}")
                     continue  # Skip PC increment
+            """
 
             # Increment the Program Counter (PC)
             self.registers[30] += 4  # Move to the next instruction
