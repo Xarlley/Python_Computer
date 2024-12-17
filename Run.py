@@ -249,6 +249,13 @@ class SimpleComputer:
             elif opcode == 0b00100:  # JGE
                 # Simulate BTB and BPB prediction
                 instruction_address = self.registers[30]  # PC without base
+
+                # BPB and BTB size limit
+                if len(self.branch_plugin["BPB"]) > 1000:
+                    self.branch_plugin["BPB"].popitem()
+                if len(self.branch_plugin["BTB"]) > 256:
+                    self.branch_plugin["BTB"].popitem()
+
                 predicted_jump, predicted_target = self.plugins_BTB_BPB(instruction_address)
 
                 # Apply prediction
